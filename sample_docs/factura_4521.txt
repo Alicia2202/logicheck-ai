@@ -1,0 +1,12 @@
+FACTURA
+
+Número de pedido: 4521
+Proveedor: Frutas Hnos. García, S.L.
+Fecha factura: 2024-03-15
+
+Producto: Tomate Rama Extra
+Cantidad: 500 kg
+Precio unitario: 1,20 €/kg
+Base imponible: 600,00 €
+IVA (4%)
+Importe total: 624,00 €

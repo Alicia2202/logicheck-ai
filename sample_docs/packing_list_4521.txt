@@ -1,0 +1,8 @@
+PACKING LIST - ALMACÉN
+
+Número de pedido: 4521
+Proveedor: Frutas Garcia
+Fecha de recepción: 2024-03-16
+
+Mercancía: Tomates Rama
+Cantidad recibida: 480 kg
