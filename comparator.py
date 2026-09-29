@@ -39,6 +39,14 @@ def _similitud(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, _normalizar(a), _normalizar(b)).ratio()
 
 
+def similitud_minima(nombres: List[Optional[str]]) -> Optional[float]:
+    """Peor similitud del primer nombre contra el resto (None si hay menos de 2)."""
+    valores = [v for v in nombres if v]
+    if len(valores) < 2:
+        return None
+    return min(_similitud(valores[0], v) for v in valores[1:])
+
+
 def comparar_pedido(
     factura: DocumentoExtraido,
     albaran: DocumentoExtraido,
@@ -62,9 +70,8 @@ def comparar_pedido(
     # 2. Proveedor: nombres casi nunca coinciden literalmente
     #    (razón social vs nombre comercial), así que usamos similitud de texto.
     proveedores = {k: d.proveedor for k, d in docs.items()}
-    valores_prov = [v for v in proveedores.values() if v]
-    if len(valores_prov) >= 2:
-        sim_min = min(_similitud(valores_prov[0], v) for v in valores_prov[1:])
+    sim_min = similitud_minima(list(proveedores.values()))
+    if sim_min is not None:
         if sim_min < UMBRAL_SIMILITUD_TEXTO:
             discrepancias.append(Discrepancia(
                 campo="proveedor",
@@ -77,9 +84,8 @@ def comparar_pedido(
     # 3. Producto: igual que proveedor, esperamos variación de nombre
     #    ("Tomate Rama" vs "Tomate Rama Extra" vs "Tomates rama").
     productos = {k: d.producto.nombre for k, d in docs.items()}
-    valores_prod = [v for v in productos.values() if v]
-    if len(valores_prod) >= 2:
-        sim_min = min(_similitud(valores_prod[0], v) for v in valores_prod[1:])
+    sim_min = similitud_minima(list(productos.values()))
+    if sim_min is not None:
         if sim_min < UMBRAL_SIMILITUD_TEXTO:
             discrepancias.append(Discrepancia(
                 campo="producto",

@@ -11,6 +11,48 @@ No necesita API key ni red: usa `extract_mock`, un extractor por regex
 sobre los documentos de ejemplo en `sample_docs/`, para poder practicar
 el pipeline completo end-to-end.
 
+## API REST y dashboard
+
+El script de consola y la API ejecutan **el mismo código**:
+`pipeline.analizar()` encadena extractor → comparator → summarizer.
+`main.py` lo imprime por consola; `api/main.py` lo persiste en SQLite
+y lo expone al dashboard.
+
+```bash
+# Backend (desde la raíz del repo)
+pip install -r requirements.txt
+uvicorn api.main:app --reload          # http://localhost:8000/docs
+
+# Frontend (otra terminal)
+cd frontend
+npm install
+npm run dev                            # http://localhost:5173
+```
+
+En el dashboard, "Procesar nuevo pedido → Usar pedido de ejemplo" lanza
+el mismo análisis que `python3 main.py`. También se pueden subir los 3
+documentos: `.txt` va al extractor regex; `.pdf`/`.jpg` va a
+`extract_with_claude` (requiere `ANTHROPIC_API_KEY`).
+
+| Endpoint | Qué hace |
+|---|---|
+| `POST /api/v1/process-order` | Ejecuta el pipeline. Multipart con `factura`, `albaran`, `packing_list`; sin ficheros usa `sample_docs/` |
+| `GET /api/v1/feedbacks` | Último análisis de cada pedido. Filtros: `estado`, `severidad`, `proveedor`, `q` (nº de pedido) |
+| `GET /api/v1/feedbacks/{order_id}` | Detalle con discrepancias e historial de revisiones |
+| `PUT /api/v1/feedbacks/{order_id}/review` | Decisión del operador: `APPROVE`, `REJECT` o `FALSE_POSITIVE` |
+| `GET /api/v1/metrics` | % auto-aprobación, cola, resueltos hoy, top proveedores con incidencias |
+
+**Semáforo y cola de revisión** (`summarizer.semaforo`): 🔴 si hay alguna
+discrepancia crítica (bloqueante), 🟠/amarillo si hay alguna alta
+(revisión recomendada), 🟢 en otro caso. Solo 🔴/🟠 entran en la cola
+humana; las discrepancias medias están dentro de tolerancia por
+definición, así que se auto-aprueban pero siguen visibles en el detalle.
+
+**Trazabilidad**: reprocesar un pedido crea un análisis nuevo (no pisa
+el anterior) y cada decisión humana se añade a un log de revisiones que
+nunca se modifica. La base de datos es `logicheck.db` en la raíz del repo
+(configurable con `LOGICHECK_DB`).
+
 ## Arquitectura (y por qué)
 
 ```
