@@ -131,14 +131,4 @@ DocumentoExtraido (por cada uno de los 3 documentos)
 - Tests con documentos reales variados (distintos idiomas, escaneados
   de mala calidad, PDFs generados vs fotografiados).
 
-## Cómo presentarlo en la entrevista
 
-1. Empieza por el diagrama de arquitectura y el "por qué" de cada capa
-   (arriba) — antes de enseñar código. Es lo que más peso tiene.
-2. Ejecuta `main.py` en vivo y enseña el caso con discrepancia real.
-3. Enseña brevemente `comparator.py` y explica 2-3 reglas con su
-   razonamiento (especialmente la del IVA — es la que demuestra que
-   entiendes el dominio, no solo que sabes comparar números).
-4. Cierra con la sección "qué le falta para producción" — muestra que
-   sabes que esto es un prototipo razonado, no una solución completa,
-   y que piensas en escala y operación real.
