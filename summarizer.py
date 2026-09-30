@@ -8,7 +8,7 @@ Principio de diseño: severidad más grave primero, un semáforo
 
 from typing import List
 
-from models import Discrepancia, Severidad
+from models import Discrepancia, Semaforo, Severidad
 
 ORDEN_SEVERIDAD = {
     Severidad.CRITICA: 0,
@@ -34,6 +34,20 @@ def _estado_global(discrepancias: List[Discrepancia]) -> str:
     if Severidad.MEDIA in severidades:
         return "🟡 VIGILAR — dentro de tolerancia, sin acción urgente"
     return "🟢 OK — los 3 documentos cuadran"
+
+
+def semaforo(discrepancias: List[Discrepancia]) -> Semaforo:
+    """
+    Solo CRITICA y ALTA mandan el pedido a la cola de revisión humana.
+    MEDIA está dentro de tolerancia por definición: se auto-aprueba y
+    queda visible en el detalle, pero no le quita tiempo a nadie.
+    """
+    severidades = {d.severidad for d in discrepancias}
+    if Severidad.CRITICA in severidades:
+        return Semaforo.ROJO
+    if Severidad.ALTA in severidades:
+        return Semaforo.AMARILLO
+    return Semaforo.VERDE
 
 
 def generar_resumen(numero_pedido: str, discrepancias: List[Discrepancia]) -> str:

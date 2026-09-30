@@ -28,6 +28,17 @@ class Severidad(str, Enum):
     INFO = "info"         # diferencia de formato/nombre, no es un error real
 
 
+class Semaforo(str, Enum):
+    """
+    Estado global del pedido para el dashboard. Tres luces, no cuatro:
+    lo que el operador necesita saber es si puede ignorarlo, si debería
+    mirarlo o si está bloqueado.
+    """
+    VERDE = "verde"         # sin discrepancias relevantes -> auto-aprobado
+    AMARILLO = "amarillo"   # hay algo ALTA -> revisión recomendada
+    ROJO = "rojo"           # hay algo CRITICA -> bloqueante
+
+
 @dataclass
 class ProductoExtraido:
     nombre: Optional[str] = None

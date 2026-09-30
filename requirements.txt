@@ -1,0 +1,7 @@
+# Pipeline de consola: solo stdlib.
+# Extracción real con PDFs/imágenes (extract_with_claude):
+anthropic
+# API REST (api/):
+fastapi>=0.110
+uvicorn[standard]
+python-multipart

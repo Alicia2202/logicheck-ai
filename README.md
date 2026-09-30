@@ -11,6 +11,48 @@ No necesita API key ni red: usa `extract_mock`, un extractor por regex
 sobre los documentos de ejemplo en `sample_docs/`, para poder practicar
 el pipeline completo end-to-end.
 
+## API REST y dashboard
+
+El script de consola y la API ejecutan **el mismo código**:
+`pipeline.analizar()` encadena extractor → comparator → summarizer.
+`main.py` lo imprime por consola; `api/main.py` lo persiste en SQLite
+y lo expone al dashboard.
+
+```bash
+# Backend (desde la raíz del repo)
+pip install -r requirements.txt
+uvicorn api.main:app --reload          # http://localhost:8000/docs
+
+# Frontend (otra terminal)
+cd frontend
+npm install
+npm run dev                            # http://localhost:5173
+```
+
+En el dashboard, "Procesar nuevo pedido → Usar pedido de ejemplo" lanza
+el mismo análisis que `python3 main.py`. También se pueden subir los 3
+documentos: `.txt` va al extractor regex; `.pdf`/`.jpg` va a
+`extract_with_claude` (requiere `ANTHROPIC_API_KEY`).
+
+| Endpoint | Qué hace |
+|---|---|
+| `POST /api/v1/process-order` | Ejecuta el pipeline. Multipart con `factura`, `albaran`, `packing_list`; sin ficheros usa `sample_docs/` |
+| `GET /api/v1/feedbacks` | Último análisis de cada pedido. Filtros: `estado`, `severidad`, `proveedor`, `q` (nº de pedido) |
+| `GET /api/v1/feedbacks/{order_id}` | Detalle con discrepancias e historial de revisiones |
+| `PUT /api/v1/feedbacks/{order_id}/review` | Decisión del operador: `APPROVE`, `REJECT` o `FALSE_POSITIVE` |
+| `GET /api/v1/metrics` | % auto-aprobación, cola, resueltos hoy, top proveedores con incidencias |
+
+**Semáforo y cola de revisión** (`summarizer.semaforo`): 🔴 si hay alguna
+discrepancia crítica (bloqueante), 🟠/amarillo si hay alguna alta
+(revisión recomendada), 🟢 en otro caso. Solo 🔴/🟠 entran en la cola
+humana; las discrepancias medias están dentro de tolerancia por
+definición, así que se auto-aprueban pero siguen visibles en el detalle.
+
+**Trazabilidad**: reprocesar un pedido crea un análisis nuevo (no pisa
+el anterior) y cada decisión humana se añade a un log de revisiones que
+nunca se modifica. La base de datos es `logicheck.db` en la raíz del repo
+(configurable con `LOGICHECK_DB`).
+
 ## Arquitectura (y por qué)
 
 ```
@@ -89,14 +131,4 @@ DocumentoExtraido (por cada uno de los 3 documentos)
 - Tests con documentos reales variados (distintos idiomas, escaneados
   de mala calidad, PDFs generados vs fotografiados).
 
-## Cómo presentarlo en la entrevista
 
-1. Empieza por el diagrama de arquitectura y el "por qué" de cada capa
-   (arriba) — antes de enseñar código. Es lo que más peso tiene.
-2. Ejecuta `main.py` en vivo y enseña el caso con discrepancia real.
-3. Enseña brevemente `comparator.py` y explica 2-3 reglas con su
-   razonamiento (especialmente la del IVA — es la que demuestra que
-   entiendes el dominio, no solo que sabes comparar números).
-4. Cierra con la sección "qué le falta para producción" — muestra que
-   sabes que esto es un prototipo razonado, no una solución completa,
-   y que piensas en escala y operación real.
