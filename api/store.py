@@ -36,7 +36,11 @@ from comparator import similitud_minima
 from models import Semaforo, Severidad
 from pipeline import ResultadoAnalisis
 
-DB_PATH = Path(os.environ.get("LOGICHECK_DB", Path(__file__).resolve().parent.parent / "logicheck.db"))
+# En Vercel el código es de solo lectura y solo /tmp admite escritura. Es
+# efímero (se pierde al reciclar la instancia), pero para la demo basta:
+# el arranque vuelve a cargar los pedidos de ejemplo (ver api/main.py).
+_DB_POR_DEFECTO = Path("/tmp/logicheck.db") if os.environ.get("VERCEL") else Path(__file__).resolve().parent.parent / "logicheck.db"
+DB_PATH = Path(os.environ.get("LOGICHECK_DB", _DB_POR_DEFECTO))
 
 # Campos que cuentan como "fricción" de un proveedor en las métricas:
 # lo que no se pudo leer y lo que no cuadró en cantidad.
@@ -93,6 +97,11 @@ def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _conexion() as conn:
         conn.executescript(_SCHEMA)
+
+
+def vacia() -> bool:
+    with _conexion() as conn:
+        return conn.execute("SELECT 1 FROM analyses LIMIT 1").fetchone() is None
 
 
 def _estado_inicial(semaforo: Semaforo) -> EstadoRevision:

@@ -8,6 +8,9 @@ persiste el resultado y expone la cola de revisión humana.
 Arranque (desde la raíz del repo):
     uvicorn api.main:app --reload
 Documentación interactiva: http://localhost:8000/docs
+
+Si existe frontend/dist (npm run build), también sirve el dashboard en /.
+Así en Vercel frontend y API comparten dominio y no hace falta CORS.
 """
 
 import os
@@ -17,8 +20,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from api import store
 from api.schemas import (
@@ -31,13 +36,21 @@ from api.schemas import (
 from models import Severidad, TipoDocumento
 from pipeline import analizar, documentos_de_ejemplo
 
-# .txt va al extractor regex (sin red); PDF/JPEG van a Claude con visión.
+# En local, las API keys se leen de .env (ver .env.example). En Vercel no
+# hay .env: las variables se definen en el panel del proyecto.
+load_dotenv()
+
+# .txt va al extractor regex (sin red); PDF/JPEG van al LLM con visión (Gemini o Claude).
 EXTENSIONES_PERMITIDAS = {".txt", ".pdf", ".jpg", ".jpeg"}
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     store.init_db()
+    # Con una base de datos efímera (Vercel), el dashboard arrancaría vacío
+    # tras cada reinicio. Los ejemplos son .txt: regex, sin gastar LLM.
+    if store.vacia():
+        store.guardar_analisis(analizar(documentos_de_ejemplo()))
     yield
 
 
@@ -132,3 +145,9 @@ def review_order(order_id: str, body: UserFeedbackUpdate):
     if detalle is None:
         raise HTTPException(status_code=404, detail=f"Pedido '{order_id}' no encontrado.")
     return detalle
+
+
+# Debe ir al final: montado en "/", captura todo lo que no sea una ruta de la API.
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from comparator import comparar_pedido
-from extractor import extract_mock, extract_with_claude
+from extractor import extract_mock, extract_with_llm
 from models import Discrepancia, DocumentoExtraido, Semaforo, TipoDocumento
 from summarizer import generar_resumen, semaforo
 
@@ -30,10 +30,10 @@ class ResultadoAnalisis:
 
 
 def extraer(path: Path, tipo: TipoDocumento) -> DocumentoExtraido:
-    """Texto plano -> extractor regex (sin red). PDF/imagen -> Claude."""
+    """Texto plano -> extractor regex (sin red). PDF/imagen -> LLM (Gemini o Claude)."""
     if path.suffix.lower() == ".txt":
         return extract_mock(path.read_text(encoding="utf-8"), tipo)
-    return extract_with_claude(str(path), tipo)
+    return extract_with_llm(str(path), tipo)
 
 
 def documentos_de_ejemplo(numero: str = "4521") -> Dict[TipoDocumento, Path]:

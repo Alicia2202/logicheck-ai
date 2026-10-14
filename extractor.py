@@ -7,14 +7,18 @@ Este módulo tiene DOS implementaciones a propósito:
    el pipeline completo sin depender de red ni de una API key, y deja
    claro qué campos se están buscando.
 
-2. extract_with_claude(): la versión real que usarías el día de la
-   entrevista, con PDFs/imágenes de verdad y salida JSON forzada.
-   Requiere ANTHROPIC_API_KEY y el SDK `anthropic` instalado.
+2. extract_with_llm(): la versión real, con PDFs/imágenes de verdad y
+   salida JSON forzada. El proveedor se elige con LOGICHECK_LLM:
+   "gemini" (por defecto, tiene plan gratuito; requiere GEMINI_API_KEY)
+   o "claude" (requiere ANTHROPIC_API_KEY).
 
 En ambos casos la salida es un DocumentoExtraido, así el resto del
 pipeline (comparator.py) no sabe ni le importa cómo se extrajo.
 """
 
+import base64
+import json
+import os
 import re
 from typing import Optional
 
@@ -40,7 +44,7 @@ def extract_mock(text: str, tipo: TipoDocumento) -> DocumentoExtraido:
     """
     Extractor basado en reglas para los documentos de ejemplo de este
     ejercicio. En un caso real esto NO escala (cada proveedor tiene su
-    propio formato) — por eso en producción usaríamos extract_with_claude.
+    propio formato) — por eso en producción usaríamos extract_with_llm.
     Aquí sirve para poder ejecutar y entender el pipeline sin red.
     """
     campos_no_legibles = []
@@ -85,9 +89,8 @@ def extract_mock(text: str, tipo: TipoDocumento) -> DocumentoExtraido:
 
 
 # ---------------------------------------------------------------------------
-# Versión real con Claude, para usar el día de la entrevista con PDFs/fotos
-# de verdad. No se ejecuta en este entorno de práctica (sin red / sin key),
-# pero así es como la conectarías.
+# Versión real con un LLM con visión (Gemini o Claude). Ambos proveedores
+# comparten prompt y parseo; solo cambia la llamada a la API.
 # ---------------------------------------------------------------------------
 
 EXTRACTION_SYSTEM_PROMPT = """Eres un motor de extracción de datos de documentos logísticos.
@@ -119,37 +122,24 @@ Reglas importantes:
 """
 
 
-def extract_with_claude(file_path: str, tipo: TipoDocumento) -> DocumentoExtraido:
-    """
-    Extracción real usando la API de Claude con un PDF o imagen.
-    Requiere: pip install anthropic ; export ANTHROPIC_API_KEY=...
-    """
-    import base64
-    import json
-    import anthropic
+GEMINI_MODEL = "gemini-3.8-flash"
+CLAUDE_MODEL = "claude-sonnet-4-6"
 
-    client = anthropic.Anthropic()
 
+def _media_type(file_path: str) -> str:
+    return "application/pdf" if file_path.lower().endswith(".pdf") else "image/jpeg"
+
+
+def _leer_base64(file_path: str) -> str:
     with open(file_path, "rb") as f:
-        data = base64.standard_b64encode(f.read()).decode("utf-8")
+        return base64.standard_b64encode(f.read()).decode("utf-8")
 
-    media_type = "application/pdf" if file_path.lower().endswith(".pdf") else "image/jpeg"
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1000,
-        system=EXTRACTION_SYSTEM_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "document" if media_type == "application/pdf" else "image",
-                 "source": {"type": "base64", "media_type": media_type, "data": data}},
-                {"type": "text", "text": f"Tipo de documento: {tipo.value}. Extrae los campos."}
-            ],
-        }],
-    )
+def _instruccion(tipo: TipoDocumento) -> str:
+    return f"Tipo de documento: {tipo.value}. Extrae los campos."
 
-    raw_text = "".join(b.text for b in response.content if b.type == "text")
+
+def _documento_desde_json(raw_text: str, tipo: TipoDocumento) -> DocumentoExtraido:
     raw_text = raw_text.strip().removeprefix("```json").removesuffix("```").strip()
     parsed = json.loads(raw_text)
 
@@ -163,3 +153,65 @@ def extract_with_claude(file_path: str, tipo: TipoDocumento) -> DocumentoExtraid
         campos_no_legibles=parsed.get("campos_no_legibles", []),
         confianza=parsed.get("confianza", "media"),
     )
+
+
+def extract_with_gemini(file_path: str, tipo: TipoDocumento) -> DocumentoExtraido:
+    """
+    Extracción real usando la API de Gemini con un PDF o imagen.
+    Requiere: pip install google-genai ; GEMINI_API_KEY=...
+    """
+    from google import genai
+
+    client = genai.Client()
+    media_type = _media_type(file_path)
+
+    interaction = client.interactions.create(
+        model=os.environ.get("GEMINI_MODEL", GEMINI_MODEL),
+        system_instruction=EXTRACTION_SYSTEM_PROMPT,
+        input=[
+            {"type": "document" if media_type == "application/pdf" else "image",
+             "data": _leer_base64(file_path), "mime_type": media_type},
+            {"type": "text", "text": _instruccion(tipo)},
+        ],
+        response_mime_type="application/json",
+        # Por defecto Gemini guarda la interacción en sus servidores; aquí
+        # no hay conversación que continuar, así que no tiene sentido.
+        store=False,
+    )
+    return _documento_desde_json(interaction.output_text or "", tipo)
+
+
+def extract_with_claude(file_path: str, tipo: TipoDocumento) -> DocumentoExtraido:
+    """
+    Extracción real usando la API de Claude con un PDF o imagen.
+    Requiere: pip install anthropic ; ANTHROPIC_API_KEY=...
+    """
+    import anthropic
+
+    client = anthropic.Anthropic()
+    media_type = _media_type(file_path)
+
+    response = client.messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=1000,
+        system=EXTRACTION_SYSTEM_PROMPT,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "document" if media_type == "application/pdf" else "image",
+                 "source": {"type": "base64", "media_type": media_type, "data": _leer_base64(file_path)}},
+                {"type": "text", "text": _instruccion(tipo)}
+            ],
+        }],
+    )
+    return _documento_desde_json("".join(b.text for b in response.content if b.type == "text"), tipo)
+
+
+EXTRACTORES_LLM = {"gemini": extract_with_gemini, "claude": extract_with_claude}
+
+
+def extract_with_llm(file_path: str, tipo: TipoDocumento) -> DocumentoExtraido:
+    proveedor = os.environ.get("LOGICHECK_LLM", "gemini").lower()
+    if proveedor not in EXTRACTORES_LLM:
+        raise ValueError(f"LOGICHECK_LLM='{proveedor}' no válido. Usa uno de {sorted(EXTRACTORES_LLM)}.")
+    return EXTRACTORES_LLM[proveedor](file_path, tipo)

@@ -32,7 +32,9 @@ npm run dev                            # http://localhost:5173
 En el dashboard, "Procesar nuevo pedido → Usar pedido de ejemplo" lanza
 el mismo análisis que `python3 main.py`. También se pueden subir los 3
 documentos: `.txt` va al extractor regex; `.pdf`/`.jpg` va a
-`extract_with_claude` (requiere `ANTHROPIC_API_KEY`).
+`extract_with_llm`, que usa Gemini por defecto (`GEMINI_API_KEY`, tiene
+plan gratuito) o Claude con `LOGICHECK_LLM=claude` (`ANTHROPIC_API_KEY`).
+Copia `.env.example` como `.env` y rellena la clave; `.env` no se sube a git.
 
 | Endpoint | Qué hace |
 |---|---|
@@ -52,6 +54,27 @@ definición, así que se auto-aprueban pero siguen visibles en el detalle.
 el anterior) y cada decisión humana se añade a un log de revisiones que
 nunca se modifica. La base de datos es `logicheck.db` en la raíz del repo
 (configurable con `LOGICHECK_DB`).
+
+## Despliegue en Vercel (demo)
+
+Un único proyecto de Vercel sirve API y dashboard en el mismo dominio:
+`pyproject.toml` apunta Vercel a `api.main:app` y compila el frontend en
+`frontend/dist`, que FastAPI sirve en `/`.
+
+1. Importa el repo en Vercel (raíz del repo como *Root Directory*).
+2. En *Settings → Environment Variables* añade `GEMINI_API_KEY`.
+3. Despliega.
+
+**Persistencia:** en Vercel la base de datos vive en `/tmp`, que es
+efímero. Los análisis y revisiones se pierden cuando la instancia se
+recicla (tras unos minutos sin uso), y en el arranque se vuelve a cargar
+el pedido de ejemplo para que el dashboard nunca salga vacío. Vale para
+enseñar la demo; para guardar datos de verdad haría falta una base de
+datos externa (Postgres, Turso...).
+
+**Privacidad:** en el plan gratuito de Gemini, Google puede usar los
+documentos enviados para mejorar sus productos. No subas documentos
+reales de clientes sin pasar al plan de pago.
 
 ## Arquitectura (y por qué)
 

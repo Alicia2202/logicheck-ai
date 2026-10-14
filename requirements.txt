@@ -1,7 +1,10 @@
+# Mantener sincronizado con [project].dependencies de pyproject.toml (lo usa Vercel).
 # Pipeline de consola: solo stdlib.
-# Extracción real con PDFs/imágenes (extract_with_claude):
+# Extracción real con PDFs/imágenes (extract_with_llm):
+google-genai>=2.3.0
 anthropic
 # API REST (api/):
 fastapi>=0.110
 uvicorn[standard]
 python-multipart
+python-dotenv

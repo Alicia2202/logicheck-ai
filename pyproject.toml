@@ -1,0 +1,21 @@
+# Configuración de despliegue en Vercel. Para desarrollo local basta con
+# requirements.txt (mantener ambas listas de dependencias sincronizadas).
+[project]
+name = "logicheck-ai"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = [
+    "google-genai>=2.3.0",
+    "anthropic",
+    "fastapi>=0.110",
+    "python-multipart",
+    "python-dotenv",
+]
+
+[tool.vercel]
+# main.py en la raíz es el script de consola, no la API.
+entrypoint = "api.main:app"
+
+[tool.vercel.scripts]
+# El dashboard se compila en frontend/dist y lo sirve la propia API (ver api/main.py).
+build = "cd frontend && npm ci && npm run build"
