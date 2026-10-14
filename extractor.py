@@ -122,6 +122,38 @@ Reglas importantes:
 """
 
 
+def _nullable(tipo: str) -> dict:
+    return {"type": [tipo, "null"]}
+
+
+# El mismo esquema que describe EXTRACTION_SYSTEM_PROMPT. Gemini lo exige
+# para devolver JSON y además garantiza que la respuesta lo cumple.
+EXTRACTION_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "numero_pedido": _nullable("string"),
+        "proveedor": _nullable("string"),
+        "fecha": _nullable("string"),
+        "producto": {
+            "type": "object",
+            "properties": {
+                "nombre": _nullable("string"),
+                "cantidad": _nullable("number"),
+                "unidad": _nullable("string"),
+                "precio_unitario": _nullable("number"),
+                "base_imponible": _nullable("number"),
+                "iva_pct": _nullable("number"),
+                "importe_total": _nullable("number"),
+            },
+            "required": ["nombre", "cantidad", "unidad", "precio_unitario",
+                         "base_imponible", "iva_pct", "importe_total"],
+        },
+        "campos_no_legibles": {"type": "array", "items": {"type": "string"}},
+        "confianza": {"type": "string", "enum": ["alta", "media", "baja"]},
+    },
+    "required": ["numero_pedido", "proveedor", "fecha", "producto", "campos_no_legibles", "confianza"],
+}
+
 GEMINI_MODEL = "gemini-3.8-flash"
 CLAUDE_MODEL = "claude-sonnet-4-6"
 
@@ -173,7 +205,7 @@ def extract_with_gemini(file_path: str, tipo: TipoDocumento) -> DocumentoExtraid
              "data": _leer_base64(file_path), "mime_type": media_type},
             {"type": "text", "text": _instruccion(tipo)},
         ],
-        response_mime_type="application/json",
+        response_format={"type": "text", "mime_type": "application/json", "schema": EXTRACTION_JSON_SCHEMA},
         # Por defecto Gemini guarda la interacción en sus servidores; aquí
         # no hay conversación que continuar, así que no tiene sentido.
         store=False,
