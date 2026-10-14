@@ -13,6 +13,13 @@ Si existe frontend/dist (npm run build), también sirve el dashboard en /.
 Así en Vercel frontend y API comparten dominio y no hace falta CORS.
 """
 
+from dotenv import load_dotenv
+
+# En local, las API keys y DATABASE_URL se leen de .env (ver .env.example).
+# Debe ir antes de importar api.store, que lee DATABASE_URL al importarse.
+# En Vercel no hay .env: las variables se definen en el panel del proyecto.
+load_dotenv()
+
 import os
 import shutil
 import tempfile
@@ -20,7 +27,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -36,10 +42,6 @@ from api.schemas import (
 from models import Severidad, TipoDocumento
 from pipeline import analizar, documentos_de_ejemplo
 
-# En local, las API keys se leen de .env (ver .env.example). En Vercel no
-# hay .env: las variables se definen en el panel del proyecto.
-load_dotenv()
-
 # .txt va al extractor regex (sin red); PDF/JPEG van al LLM con visión (Gemini o Claude).
 EXTENSIONES_PERMITIDAS = {".txt", ".pdf", ".jpg", ".jpeg"}
 
@@ -47,8 +49,8 @@ EXTENSIONES_PERMITIDAS = {".txt", ".pdf", ".jpg", ".jpeg"}
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     store.init_db()
-    # Con una base de datos efímera (Vercel), el dashboard arrancaría vacío
-    # tras cada reinicio. Los ejemplos son .txt: regex, sin gastar LLM.
+    # Base de datos recién creada: carga el pedido de ejemplo para que el
+    # dashboard no arranque vacío. Los ejemplos son .txt: regex, sin LLM.
     if store.vacia():
         store.guardar_analisis(analizar(documentos_de_ejemplo()))
     yield

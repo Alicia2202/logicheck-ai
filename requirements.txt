@@ -8,3 +8,5 @@ fastapi>=0.110
 uvicorn[standard]
 python-multipart
 python-dotenv
+# Postgres (Supabase) en Vercel; en local, sin DATABASE_URL, se usa SQLite:
+psycopg[binary]
