@@ -1,5 +1,7 @@
 """
-Persistencia ligera en SQLite (stdlib, sin ORM).
+Persistencia ligera sin ORM: Postgres si hay DATABASE_URL (Supabase en
+Vercel), SQLite en local. Las consultas son SQL estándar común a ambos;
+solo cambian el DDL y el estilo de parámetros (? frente a %s).
 
 Dos tablas con responsabilidades distintas:
   - analyses: cada ejecución del pipeline. Reprocesar un pedido crea una
@@ -20,6 +22,7 @@ from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 from typing import Iterator, List, Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from api.schemas import (
     AccionOperador,
@@ -36,11 +39,24 @@ from comparator import similitud_minima
 from models import Semaforo, Severidad
 from pipeline import ResultadoAnalisis
 
-# En Vercel el código es de solo lectura y solo /tmp admite escritura. Es
-# efímero (se pierde al reciclar la instancia), pero para la demo basta:
-# el arranque vuelve a cargar los pedidos de ejemplo (ver api/main.py).
-_DB_POR_DEFECTO = Path("/tmp/logicheck.db") if os.environ.get("VERCEL") else Path(__file__).resolve().parent.parent / "logicheck.db"
-DB_PATH = Path(os.environ.get("LOGICHECK_DB", _DB_POR_DEFECTO))
+
+
+def _url_postgres() -> Optional[str]:
+    # DATABASE_URL: la cadena del pooler de Supabase (Connect -> Transaction
+    # pooler). POSTGRES_URL: la que crea la integración Supabase de Vercel,
+    # que añade un parámetro "supa" que libpq rechaza.
+    url = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
+    if not url:
+        return None
+    partes = urlsplit(url)
+    query = [(k, v) for k, v in parse_qsl(partes.query) if k != "supa"]
+    return urlunsplit(partes._replace(query=urlencode(query)))
+
+
+POSTGRES_URL = _url_postgres()
+# Sin Postgres, SQLite en un fichero local. No sirve en Vercel: cada
+# instancia tendría su propia copia de /tmp y verían datos distintos.
+DB_PATH = Path(os.environ.get("LOGICHECK_DB", Path(__file__).resolve().parent.parent / "logicheck.db"))
 
 # Campos que cuentan como "fricción" de un proveedor en las métricas:
 # lo que no se pudo leer y lo que no cuadró en cantidad.
@@ -48,7 +64,7 @@ CAMPOS_FRICCION = {"cantidad", "calidad_extraccion"}
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS analyses (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    id                  {id_autoincremental},
     order_id            TEXT NOT NULL,
     proveedor           TEXT,
     similitud_proveedor REAL,
@@ -64,8 +80,8 @@ CREATE TABLE IF NOT EXISTS analyses (
 CREATE INDEX IF NOT EXISTS idx_analyses_order ON analyses(order_id);
 
 CREATE TABLE IF NOT EXISTS reviews (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    analysis_id INTEGER NOT NULL REFERENCES analyses(id),
+    id          {id_autoincremental},
+    analysis_id BIGINT NOT NULL REFERENCES analyses(id),
     order_id    TEXT NOT NULL,
     action      TEXT NOT NULL,
     notes       TEXT,
@@ -75,6 +91,14 @@ CREATE TABLE IF NOT EXISTS reviews (
 CREATE INDEX IF NOT EXISTS idx_reviews_order ON reviews(order_id);
 """
 
+# Supabase expone las tablas de "public" por su API REST con la clave anónima.
+# Con RLS activado y sin políticas, esa vía no ve nada; la API de este repo
+# conecta como propietario de las tablas y no se ve afectada.
+_SCHEMA_POSTGRES_EXTRA = """
+ALTER TABLE analyses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
+"""
+
 _ULTIMO_POR_PEDIDO = "a.id IN (SELECT MAX(id) FROM analyses GROUP BY order_id)"
 
 
@@ -82,8 +106,30 @@ def _ahora() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+class _ConexionPostgres:
+    """Adapta psycopg a la interfaz de sqlite3 que usa este módulo."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql: str, params=()):
+        # Sin parámetros se pasa None: así psycopg admite varias sentencias
+        # en una sola llamada (el esquema) y no interpreta los "%" literales.
+        return self._conn.execute(sql.replace("?", "%s"), params or None)
+
+
 @contextmanager
 def _conexion() -> Iterator[sqlite3.Connection]:
+    if POSTGRES_URL:
+        import psycopg
+        from psycopg.rows import dict_row
+
+        # prepare_threshold=None: el pooler de Supabase (modo transacción)
+        # no admite sentencias preparadas.
+        with psycopg.connect(POSTGRES_URL, row_factory=dict_row, prepare_threshold=None) as conn:
+            yield _ConexionPostgres(conn)
+        return
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
@@ -94,9 +140,14 @@ def _conexion() -> Iterator[sqlite3.Connection]:
 
 
 def init_db() -> None:
+    if POSTGRES_URL:
+        with _conexion() as conn:
+            conn.execute(_SCHEMA.format(id_autoincremental="BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY")
+                         + _SCHEMA_POSTGRES_EXTRA)
+        return
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _conexion() as conn:
-        conn.executescript(_SCHEMA)
+        conn.executescript(_SCHEMA.format(id_autoincremental="INTEGER PRIMARY KEY AUTOINCREMENT"))
 
 
 def vacia() -> bool:
@@ -126,10 +177,10 @@ def guardar_analisis(resultado: ResultadoAnalisis) -> OrderAnalysisResponse:
     severidades = "," + ",".join(sorted({d.severidad.value for d in discrepancias})) + ","
 
     with _conexion() as conn:
-        cur = conn.execute(
+        nuevo_id = conn.execute(
             """INSERT INTO analyses (order_id, proveedor, similitud_proveedor, semaforo, estado,
                                      severidades, documentos_json, discrepancias_json, resumen, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id""",
             (
                 resultado.numero_pedido,
                 proveedor,
@@ -142,8 +193,8 @@ def guardar_analisis(resultado: ResultadoAnalisis) -> OrderAnalysisResponse:
                 resultado.resumen,
                 _ahora(),
             ),
-        )
-        row = conn.execute("SELECT * FROM analyses WHERE id = ?", (cur.lastrowid,)).fetchone()
+        ).fetchone()["id"]
+        row = conn.execute("SELECT * FROM analyses WHERE id = ?", (nuevo_id,)).fetchone()
     return _a_respuesta(row)
 
 
@@ -248,9 +299,9 @@ def metricas() -> MetricsResponse:
 
     with _conexion() as conn:
         resueltos_hoy = conn.execute(
-            "SELECT COUNT(DISTINCT order_id) FROM reviews WHERE substr(created_at, 1, 10) = ?",
+            "SELECT COUNT(DISTINCT order_id) AS n FROM reviews WHERE substr(created_at, 1, 10) = ?",
             (date.today().isoformat(),),
-        ).fetchone()[0]
+        ).fetchone()["n"]
 
     return MetricsResponse(
         total_pedidos=total,

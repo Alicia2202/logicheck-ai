@@ -10,6 +10,7 @@ dependencies = [
     "fastapi>=0.110",
     "python-multipart",
     "python-dotenv",
+    "psycopg[binary]",
 ]
 
 [tool.vercel]

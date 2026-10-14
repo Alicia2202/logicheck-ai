@@ -62,15 +62,15 @@ Un único proyecto de Vercel sirve API y dashboard en el mismo dominio:
 `frontend/dist`, que FastAPI sirve en `/`.
 
 1. Importa el repo en Vercel (raíz del repo como *Root Directory*).
-2. En *Settings → Environment Variables* añade `GEMINI_API_KEY`.
+2. En *Settings → Environment Variables* añade `GEMINI_API_KEY` y
+   `DATABASE_URL`.
 3. Despliega.
 
-**Persistencia:** en Vercel la base de datos vive en `/tmp`, que es
-efímero. Los análisis y revisiones se pierden cuando la instancia se
-recicla (tras unos minutos sin uso), y en el arranque se vuelve a cargar
-el pedido de ejemplo para que el dashboard nunca salga vacío. Vale para
-enseñar la demo; para guardar datos de verdad haría falta una base de
-datos externa (Postgres, Turso...).
+**Persistencia:** en Vercel la base de datos es Postgres en Supabase
+(`DATABASE_URL`, cadena del *Transaction pooler*). Un SQLite local no
+sirve ahí: Vercel reparte las peticiones entre varias instancias y cada
+una tendría su propia copia. Las tablas se crean solas al arrancar, con
+RLS activado para que la API REST pública de Supabase no las exponga.
 
 **Privacidad:** en el plan gratuito de Gemini, Google puede usar los
 documentos enviados para mejorar sus productos. No subas documentos
