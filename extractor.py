@@ -154,7 +154,8 @@ EXTRACTION_JSON_SCHEMA = {
     "required": ["numero_pedido", "proveedor", "fecha", "producto", "campos_no_legibles", "confianza"],
 }
 
-GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_MODEL = "gemini-3.5-flash-lite"
+GEMINI_TIMEOUT_S = 100
 CLAUDE_MODEL = "claude-sonnet-4-6"
 
 
@@ -206,9 +207,15 @@ def extract_with_gemini(file_path: str, tipo: TipoDocumento) -> DocumentoExtraid
             {"type": "text", "text": _instruccion(tipo)},
         ],
         response_format={"type": "text", "mime_type": "application/json", "schema": EXTRACTION_JSON_SCHEMA},
+        # Copiar campos de un documento no requiere razonar; con más
+        # "thinking" solo se gana latencia.
+        generation_config={"thinking_level": "low"},
         # Por defecto Gemini guarda la interacción en sus servidores; aquí
         # no hay conversación que continuar, así que no tiene sentido.
         store=False,
+        # Por debajo del maxDuration de vercel.json: mejor un error con
+        # mensaje que un 504 genérico de Vercel.
+        timeout=GEMINI_TIMEOUT_S,
     )
     return _documento_desde_json(interaction.output_text or "", tipo)
 

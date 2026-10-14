@@ -7,6 +7,7 @@ copia del flujo, tarde o temprano ambos darían resultados distintos
 para el mismo pedido, y eso rompe la auditabilidad.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List
@@ -45,7 +46,11 @@ def documentos_de_ejemplo(numero: str = "4521") -> Dict[TipoDocumento, Path]:
 
 
 def analizar(rutas: Dict[TipoDocumento, Path]) -> ResultadoAnalisis:
-    docs = {tipo: extraer(ruta, tipo) for tipo, ruta in rutas.items()}
+    # Con PDFs/imágenes cada extracción es una llamada al LLM de varios
+    # segundos; en paralelo el pedido tarda lo que el documento más lento.
+    with ThreadPoolExecutor(max_workers=len(rutas)) as pool:
+        futuros = {tipo: pool.submit(extraer, ruta, tipo) for tipo, ruta in rutas.items()}
+    docs = {tipo: f.result() for tipo, f in futuros.items()}
     factura = docs[TipoDocumento.FACTURA]
     discrepancias = comparar_pedido(factura, docs[TipoDocumento.ALBARAN], docs[TipoDocumento.PACKING_LIST])
     numero = factura.numero_pedido or "DESCONOCIDO"
